@@ -167,6 +167,8 @@ The obvious use is to wire it to a room-presence sensor. Example:
 
 ## Example: power dial automation
 
+![Power dial running on the badge](power_dial.jpg)
+
 `examples/power_dial.yaml` is the automation I run at home, it turns the badge
 into an at-a-glance energy display:
 
