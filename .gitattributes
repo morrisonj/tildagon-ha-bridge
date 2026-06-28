@@ -1,0 +1,7 @@
+# Files in this repo that shouldn't end up on the badge. The Tildagon app
+# store fetches releases via `git archive`, which honours `export-ignore`.
+README.md         export-ignore
+config_example.py export-ignore
+examples/         export-ignore
+.gitattributes    export-ignore
+.gitignore        export-ignore

@@ -1,0 +1,160 @@
+# Power Dial — Tildagon HA Bridge example automation
+#
+# Turns the badge into a live home-energy display:
+#
+#   - Screen text: current wattage, today's kWh, current rate (pence),
+#     today's cumulative cost (£)
+#   - LEDs 1-6  (right semicircle): current wattage, 500 W per LED,
+#     green / amber / red, fills LED 6 -> LED 1
+#   - LEDs 7-12 (left semicircle):  current rate, 5 p per LED,
+#     green / white / red, fills LED 7 -> LED 12
+#   - Plunge-pricing flourish: when rate < 0p, LED 7 pulses blue and the
+#     rest of the price bar is empty
+#   - High-usage flourish: when power > 3000 W, LED 1 pulses red on top of
+#     the full bar
+#
+# To use this:
+#
+#   1. Replace `tildagon/REPLACE_WITH_BADGE_ID` with your badge's base topic.
+#      Find it in HA: Settings > Devices & Services > MQTT > Tildagon Badge
+#      (device identifier is `tildagon_<hex>`; drop the `tildagon_` prefix).
+#   2. Replace the four sensor IDs with your own:
+#        - power consumption (W, instantaneous)
+#        - daily energy total (kWh, resets at midnight)
+#        - current energy rate (£/kWh, can be negative on Agile plunge)
+#        - daily cumulative cost (£, see "Daily cost helper chain" below)
+#
+# Daily cost helper chain (Settings > Devices & Services > Helpers):
+#
+#   1. Integration (Riemann sum) on the power sensor:
+#        unit prefix `k`, time unit `Hours`, method `Trapezoidal`
+#        -> `sensor.grid_energy` (ever-increasing kWh)
+#   2. Template sensor "Grid Spend Rate":
+#        state: (power_W / 1000) * rate_GBP_per_kWh
+#        state_class: measurement, unit blank
+#        -> `sensor.grid_spend_rate` (£/h, can be negative)
+#   3. Integration (Riemann sum) on Grid Spend Rate:
+#        time unit `Hours`, method `Trapezoidal`
+#        -> `sensor.grid_cost` (ever-increasing £, allows decreases)
+#   4. Utility Meter on Grid Cost:
+#        cycle `Daily`, **Net consumption: ON**
+#        -> `sensor.grid_cost_today`
+#
+#   `Net consumption: ON` on the utility meter is required for plunge
+#   pricing — without it, a decrease in the source is misread as a meter
+#   reset and the daily total goes wrong.
+
+alias: Badge - Power Dial
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: time_pattern
+    seconds: /3
+
+conditions:
+  - condition: state
+    entity_id: switch.tildagon_badge_active
+    state: "on"
+
+variables:
+  badge_base: tildagon/REPLACE_WITH_BADGE_ID
+
+  power: >-
+    {{ states('sensor.REPLACE_WITH_YOUR_POWER_SENSOR') | float(0) }}
+
+  kwh_today: >-
+    {{ states('sensor.REPLACE_WITH_YOUR_DAILY_ENERGY_SENSOR') | float(0) }}
+
+  pence: >-
+    {{ (states('sensor.REPLACE_WITH_YOUR_RATE_SENSOR') | float(0)) * 100 }}
+
+  cost_today: >-
+    {{ states('sensor.REPLACE_WITH_YOUR_DAILY_COST_SENSOR') | float(0) }}
+
+  price_color: >-
+    {% set p = pence | float(0) -%}
+    {% if p > 20 %}[255,0,0]{% elif p > 10 %}[255,255,255]{% else %}[0,255,0]{% endif %}
+
+actions:
+  # ---- Screen layout ----
+  - data:
+      topic: "{{ badge_base }}/layout/set"
+      payload: |-
+        {
+          "bg": [0, 0, 0],
+          "lines": [
+            {"t": "Energy", "s": 48, "y": -70, "c": [105, 80, 255]},
+            {"t": "{{ power | round(0) }} W", "s": 72, "y": 0, "c": [255, 255, 255]},
+            {"t": "Today: {{ '%.2f' | format(kwh_today) }} kWh", "s": 22, "y": 23, "c": [180, 180, 180]},
+            {"t": "{{ '%.1f' | format(pence | float(0)) }}p", "s": 50, "y": 72, "c": {{ price_color }}},
+            {"t": "Today: £{{ '%.2f' | format(cost_today) }}", "s": 22, "y": 100, "c": [180, 180, 180]}
+          ]
+        }
+    action: mqtt.publish
+
+  # ---- LED dial: right side = wattage, left side = price ----
+  - repeat:
+      count: 12
+      sequence:
+        - data:
+            topic: "{{ badge_base }}/led/{{ repeat.index }}/set"
+            payload: |-
+              {%- set i = repeat.index -%}
+              {#- ====== RIGHT BAR: wattage (LEDs 1-6, fills LED 6 -> 1) ====== -#}
+              {%- if i <= 6 -%}
+                {%- set step = 500 -%}
+                {%- set band = 7 - i -%}
+                {%- set low = (band - 1) * step -%}
+                {%- set high = band * step -%}
+                {%- if power <= 1000 -%}
+                  {%- set r = 0 -%}{%- set g = 255 -%}{%- set b = 0 -%}
+                {%- elif power <= 2000 -%}
+                  {%- set r = 255 -%}{%- set g = 180 -%}{%- set b = 0 -%}
+                {%- else -%}
+                  {%- set r = 255 -%}{%- set g = 0 -%}{%- set b = 0 -%}
+                {%- endif -%}
+                {%- if power >= high -%}
+                  {%- if i == 1 and power > 3000 -%}
+                    {"state":"ON","color_mode":"rgb","color":{"r":{{ r }},"g":{{ g }},"b":{{ b }}},"effect":"pulse"}
+                  {%- else -%}
+                    {"state":"ON","color_mode":"rgb","color":{"r":{{ r }},"g":{{ g }},"b":{{ b }}}}
+                  {%- endif -%}
+                {%- elif power > low -%}
+                  {%- set f = (power - low) / step -%}
+                  {"state":"ON","color_mode":"rgb","color":{"r":{{ (r * f) | round(0) | int }},"g":{{ (g * f) | round(0) | int }},"b":{{ (b * f) | round(0) | int }}}}
+                {%- else -%}
+                  {"state":"OFF"}
+                {%- endif -%}
+              {#- ====== LEFT BAR: price (LEDs 7-12, fills LED 7 -> 12) ====== -#}
+              {%- else -%}
+                {%- set p = pence | float(0) -%}
+                {%- set step = 5 -%}
+                {%- set band = i - 6 -%}
+                {%- set low = (band - 1) * step -%}
+                {%- set high = band * step -%}
+                {%- if p < 0 -%}
+                  {%- if i == 7 -%}
+                    {"state":"ON","color_mode":"rgb","color":{"r":0,"g":80,"b":255},"effect":"pulse"}
+                  {%- else -%}
+                    {"state":"OFF"}
+                  {%- endif -%}
+                {%- else -%}
+                  {%- if p <= 10 -%}
+                    {%- set r = 0 -%}{%- set g = 255 -%}{%- set b = 0 -%}
+                  {%- elif p <= 20 -%}
+                    {%- set r = 255 -%}{%- set g = 255 -%}{%- set b = 255 -%}
+                  {%- else -%}
+                    {%- set r = 255 -%}{%- set g = 0 -%}{%- set b = 0 -%}
+                  {%- endif -%}
+                  {%- if p >= high -%}
+                    {"state":"ON","color_mode":"rgb","color":{"r":{{ r }},"g":{{ g }},"b":{{ b }}}}
+                  {%- elif p > low -%}
+                    {%- set f = (p - low) / step -%}
+                    {"state":"ON","color_mode":"rgb","color":{"r":{{ (r * f) | round(0) | int }},"g":{{ (g * f) | round(0) | int }},"b":{{ (b * f) | round(0) | int }}}}
+                  {%- else -%}
+                    {"state":"OFF"}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endif -%}
+          action: mqtt.publish
