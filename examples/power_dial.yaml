@@ -7,8 +7,8 @@
 #   - LEDs 1-6  (right semicircle): current wattage, 500 W per LED,
 #     green / amber / red, fills LED 6 -> LED 1
 #   - LEDs 7-12 (left semicircle):  current rate, 5 p per LED,
-#     green / white / red, fills LED 7 -> LED 12
-#   - Plunge-pricing flourish: when rate < 0p, LED 7 pulses blue and the
+#     green (0-15p) / orange (15-25p) / red (>25p), fills LED 7 -> LED 12
+#   - Plunge-pricing flourish: when rate <= 0p, LED 7 pulses blue and the
 #     rest of the price bar is empty
 #   - High-usage flourish: when power > 3000 W, LED 1 pulses red on top of
 #     the full bar
@@ -74,7 +74,7 @@ variables:
 
   price_color: >-
     {% set p = pence | float(0) -%}
-    {% if p > 20 %}[255,0,0]{% elif p > 10 %}[255,255,255]{% else %}[0,255,0]{% endif %}
+    {% if p <= 0 %}[0,80,255]{% elif p > 25 %}[255,0,0]{% elif p > 15 %}[255,160,0]{% else %}[0,255,0]{% endif %}
 
 actions:
   # ---- Screen layout ----
@@ -133,17 +133,17 @@ actions:
                 {%- set band = i - 6 -%}
                 {%- set low = (band - 1) * step -%}
                 {%- set high = band * step -%}
-                {%- if p < 0 -%}
+                {%- if p <= 0 -%}
                   {%- if i == 7 -%}
                     {"state":"ON","color_mode":"rgb","color":{"r":0,"g":80,"b":255},"effect":"pulse"}
                   {%- else -%}
                     {"state":"OFF"}
                   {%- endif -%}
                 {%- else -%}
-                  {%- if p <= 10 -%}
+                  {%- if p <= 15 -%}
                     {%- set r = 0 -%}{%- set g = 255 -%}{%- set b = 0 -%}
-                  {%- elif p <= 20 -%}
-                    {%- set r = 255 -%}{%- set g = 255 -%}{%- set b = 255 -%}
+                  {%- elif p <= 25 -%}
+                    {%- set r = 255 -%}{%- set g = 160 -%}{%- set b = 0 -%}
                   {%- else -%}
                     {%- set r = 255 -%}{%- set g = 0 -%}{%- set b = 0 -%}
                   {%- endif -%}
