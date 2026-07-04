@@ -15,4 +15,4 @@ author = "Jim Morrison"
 license = "LGPL-3.0-only"
 url = "https://github.com/morrisonj/tildagon-ha-bridge"
 description = "Bridges the Tildagon to Home Assistant over MQTT (LEDs, battery, screen)."
-version = 1
+version = "1"
