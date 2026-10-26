@@ -112,7 +112,9 @@ status screen.
 
 HA's `text` entity caps payloads at 255 chars. For longer layouts, publish
 directly to `tildagon/<id>/layout/set` via the `mqtt.publish` service, the
-badge subscribes regardless of source.
+badge subscribes regardless of source. The badge echoes such layouts to the
+text entity as a short `(layout: N chars)` placeholder so HA doesn't reject
+the state.
 
 ## LED effects
 
@@ -196,7 +198,7 @@ the comments inside the YAML.
 | in | `tildagon/<id>/active/set` | `ON` / `OFF` |
 | out | `tildagon/<id>/led/<n>` | echoed state, retained |
 | out | `tildagon/<id>/led/all` | aggregate state, retained |
-| out | `tildagon/<id>/layout` | echoed layout, retained |
+| out | `tildagon/<id>/layout` | echoed layout (placeholder if > 255 chars), retained |
 | out | `tildagon/<id>/active` | echoed active state, retained |
 | out | `tildagon/<id>/battery` | integer percent, retained |
 | out | `tildagon/<id>/version` | OS version string, retained |

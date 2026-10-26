@@ -81,6 +81,9 @@ LED_ALL_STATE = BASE + "/led/all"
 LED_ALL_SET = BASE + "/led/all/set"
 LAYOUT_STATE = BASE + "/layout"
 LAYOUT_SET = BASE + "/layout/set"
+# HA caps entity state at 255 chars; longer layouts (sent via mqtt.publish)
+# are echoed as a short placeholder so the text entity doesn't reject them.
+LAYOUT_MAX = 255
 ACTIVE_STATE = BASE + "/active"
 ACTIVE_SET = BASE + "/active/set"
 
@@ -133,7 +136,7 @@ def _build_discovery(version):
             "name": "Screen Layout",
             "command_topic": LAYOUT_SET,
             "state_topic": LAYOUT_STATE,
-            "max": 255,
+            "max": LAYOUT_MAX,
             "unique_id": NODE + "_layout",
         },
     }
@@ -257,8 +260,7 @@ class HABridgeApp(app.App):
         self.client.publish(STATUS_TOPIC, b"online", retain=True, qos=0)
         self.client.publish(VERSION_TOPIC, str(self._version).encode(),
                             retain=True, qos=0)
-        self.client.publish(LAYOUT_STATE, self.layout.encode(),
-                            retain=True, qos=0)
+        self._publish_layout()
         self._publish_active()
         for n in range(1, 13):
             self._publish_led(n)
@@ -372,8 +374,13 @@ class HABridgeApp(app.App):
                 self.status = "Layout err: %s" % e
         else:
             self.layout_data = None
-        self.client.publish(LAYOUT_STATE, self.layout.encode(),
-                            retain=True, qos=0)
+        self._publish_layout()
+
+    def _publish_layout(self):
+        state = self.layout
+        if len(state) > LAYOUT_MAX:
+            state = "(layout: %d chars)" % len(state)
+        self.client.publish(LAYOUT_STATE, state.encode(), retain=True, qos=0)
 
     def _apply_led_all(self, msg):
         data = json.loads(msg)
