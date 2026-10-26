@@ -9,7 +9,8 @@ config message), the following entities under a single "Tildagon Badge" device:
   - Battery level                          (HA `sensor`, %)
   - TildagonOS version                     (HA diagnostic `sensor`)
   - Active master switch                   (HA `switch` -> blanks the screen
-                                            and de-powers the LEDs)
+                                            and de-powers the LEDs and
+                                            hexpansions)
   - Screen layout                          (HA `text`  -> JSON layout, see
                                             `_draw_layout` for the schema)
   - Hexpansion 1-6 power                   (HA `switch` per port -> cuts the
@@ -208,9 +209,10 @@ class HABridgeApp(app.App):
 
         self.client = None
         self.status = "Starting..."
-        # When False the screen is blanked and the LEDs are de-powered. Target
-        # state (self.leds / self.layout_data) is preserved so flipping back to
-        # True snaps the latest commanded state straight onto the badge.
+        # When False the screen is blanked and the LEDs and hexpansion ports
+        # are de-powered. Target state (self.leds / self.layout_data /
+        # self.hex_power) is preserved so flipping back to True snaps the
+        # latest commanded state straight onto the badge.
         self.active = True
         # Raw layout JSON (echoed back to HA) and its parsed form. When
         # layout_data is non-None it takes over the whole screen.
@@ -408,17 +410,25 @@ class HABridgeApp(app.App):
 
     def _apply_active(self, msg):
         state = msg.decode().strip().upper()
-        self.active = (state == "ON")
+        active = (state == "ON")
+        if active != self.active:
+            self.active = active
+            for n in range(1, 7):
+                self._drive_hex_port(n)
         self._publish_active()
 
     def _apply_hex_power(self, n, msg):
-        on = (msg.decode().strip().upper() == "ON")
-        if on:
+        self.hex_power[n] = (msg.decode().strip().upper() == "ON")
+        self._drive_hex_port(n)
+        self._publish_hex_power(n)
+
+    def _drive_hex_port(self, n):
+        # A port is powered only while the badge is active AND its own switch
+        # is on. The published switch state stays the commanded one.
+        if self.active and self.hex_power[n]:
             ePin(HEX_DETECT_PINS[n], ePin.IN)
         else:
             ePin(HEX_DETECT_PINS[n], ePin.OUT).on()
-        self.hex_power[n] = on
-        self._publish_hex_power(n)
 
     def _apply_layout(self, msg):
         self.layout = msg.decode()

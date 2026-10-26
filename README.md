@@ -39,7 +39,7 @@ A single device, "Tildagon Badge", with:
   with a `pulse` effect)
 - An "All LEDs" bulk control
 - An "Active" master switch, flip it off to blank the screen and de-power
-  the LEDs (useful for room-presence automations)
+  the LEDs and hexpansions (useful for room-presence automations)
 - A "Screen Layout" text entity that accepts a small JSON layout
 - Battery level (`sensor`, %)
 - OS version (diagnostic `sensor`)
@@ -165,8 +165,13 @@ When it's off:
 
 - The screen is blanked
 - The LEDs are written black and `set_led_power(False)` cuts their power
+- Every hexpansion port is powered off
 - Incoming commands are still accepted and stored, when you flip it back on
-  the latest layout / LED state appears immediately
+  the latest layout / LED / hexpansion state appears immediately
+
+The per-port Hexpansion Power switches keep showing their own setting while
+Active is off. A port is only powered when both Active and its own switch
+are on.
 
 The obvious use is to wire it to a room-presence sensor. Example:
 
@@ -215,6 +220,8 @@ Things to know:
   a command, and the off state isn't saved, so a reboot powers every port
   back on.
 - Switching an empty port reports the commanded state but does nothing.
+- Turning the Active switch off powers down every port too; see
+  [Active switch](#active-switch).
 
 ## Example: power dial automation
 
