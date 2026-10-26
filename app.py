@@ -12,6 +12,8 @@ config message), the following entities under a single "Tildagon Badge" device:
                                             and de-powers the LEDs)
   - Screen layout                          (HA `text`  -> JSON layout, see
                                             `_draw_layout` for the schema)
+  - Hexpansion 1-6 power                   (HA `switch` per port -> cuts the
+                                            port's 3V3 load switch)
 
 Open the app once so it connects; pressing CANCEL minimises it (it does NOT
 exit) so the bridge keeps running in the background and HA stays live.
@@ -30,7 +32,9 @@ import wifi
 from umqtt.simple import MQTTClient
 from app_components import clear_background
 from events.input import Buttons, BUTTON_TYPES
-from tildagonos import tildagonos
+from egpio import ePin
+from tildagonos import (tildagonos, EPIN_ND_A, EPIN_ND_B, EPIN_ND_C,
+                        EPIN_ND_D, EPIN_ND_E, EPIN_ND_F)
 from system.eventbus import eventbus
 from system.patterndisplay.events import PatternDisable
 
@@ -87,6 +91,19 @@ LAYOUT_MAX = 255
 ACTIVE_STATE = BASE + "/active"
 ACTIVE_SET = BASE + "/active/set"
 
+# Each hexpansion port's detect pin also drives (via an inverter) the port's
+# 3V3 load switch. Driving it high from the GPIO expander cuts power; making
+# it an input again hands it back to the fitted hexpansion, which grounds it
+# and so re-enables power. Same trick the firmware's power-off screen uses.
+# The hexpansion manager sees power-off as a removal and power-on as an
+# insertion. Index 0 unused; ports are numbered 1-6.
+HEX_DETECT_PINS = (None, EPIN_ND_A, EPIN_ND_B, EPIN_ND_C,
+                   EPIN_ND_D, EPIN_ND_E, EPIN_ND_F)
+
+
+def _hex_power_topic(n):
+    return "%s/hexpansion/%d/power" % (BASE, n)
+
 LED_EFFECTS = ["pulse"]
 PULSE_PERIOD_MS = 2000
 PULSE_MIN = 0.05  # never fully dark, so the colour is still recognisable
@@ -140,6 +157,17 @@ def _build_discovery(version):
             "unique_id": NODE + "_layout",
         },
     }
+    for n in range(1, 7):
+        cmps["hex_%d_power" % n] = {
+            "p": "switch",
+            "name": "Hexpansion %d Power" % n,
+            "icon": "mdi:hexagon-outline",
+            "command_topic": _hex_power_topic(n) + "/set",
+            "state_topic": _hex_power_topic(n),
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "unique_id": "%s_hex_%d_power" % (NODE, n),
+        }
     for n in range(1, 13):
         cmps["led_%d" % n] = {
             "p": "light",
@@ -196,6 +224,9 @@ class HABridgeApp(app.App):
         # so toggling ON without a colour gives a sensible result).
         self._all_color = (255, 255, 255)
         self._all_effect = None
+        # Commanded hexpansion port power; index 0 unused. Ports are powered
+        # by default and we don't touch the pins until HA asks us to.
+        self.hex_power = [True] * 7
 
         self._version = "unknown"
         try:
@@ -242,6 +273,7 @@ class HABridgeApp(app.App):
             c.subscribe(BASE + "/led/+/set")
             c.subscribe(LAYOUT_SET)
             c.subscribe(ACTIVE_SET)
+            c.subscribe(BASE + "/hexpansion/+/power/set")
             self.client = c
             self._announce()
             self.status = "Connected"
@@ -262,6 +294,8 @@ class HABridgeApp(app.App):
                             retain=True, qos=0)
         self._publish_layout()
         self._publish_active()
+        for n in range(1, 7):
+            self._publish_hex_power(n)
         for n in range(1, 13):
             self._publish_led(n)
         self._publish_led_all()
@@ -315,6 +349,12 @@ class HABridgeApp(app.App):
                                 b"ON" if self.active else b"OFF",
                                 retain=True, qos=0)
 
+    def _publish_hex_power(self, n):
+        if self.client:
+            self.client.publish(_hex_power_topic(n),
+                                b"ON" if self.hex_power[n] else b"OFF",
+                                retain=True, qos=0)
+
     # ---- incoming commands --------------------------------------------------
     def _on_message(self, topic, msg):
         topic = topic.decode() if isinstance(topic, bytes) else topic
@@ -325,9 +365,16 @@ class HABridgeApp(app.App):
             if topic == ACTIVE_SET:
                 self._apply_active(msg)
                 return
+            parts = topic.split("/")
+            # Hexpansion power: tildagon/<id>/hexpansion/<n>/power/set
+            if (len(parts) == 6 and parts[2] == "hexpansion"
+                    and parts[4] == "power" and parts[5] == "set"):
+                n = int(parts[3])
+                if 1 <= n <= 6:
+                    self._apply_hex_power(n, msg)
+                return
             # LED command topic looks like: tildagon/<id>/led/<n>/set
             # or tildagon/<id>/led/all/set for the bulk control.
-            parts = topic.split("/")
             if len(parts) == 5 and parts[2] == "led" and parts[4] == "set":
                 if parts[3] == "all":
                     self._apply_led_all(msg)
@@ -363,6 +410,15 @@ class HABridgeApp(app.App):
         state = msg.decode().strip().upper()
         self.active = (state == "ON")
         self._publish_active()
+
+    def _apply_hex_power(self, n, msg):
+        on = (msg.decode().strip().upper() == "ON")
+        if on:
+            ePin(HEX_DETECT_PINS[n], ePin.IN)
+        else:
+            ePin(HEX_DETECT_PINS[n], ePin.OUT).on()
+        self.hex_power[n] = on
+        self._publish_hex_power(n)
 
     def _apply_layout(self, msg):
         self.layout = msg.decode()

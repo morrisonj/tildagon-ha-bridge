@@ -43,6 +43,8 @@ A single device, "Tildagon Badge", with:
 - A "Screen Layout" text entity that accepts a small JSON layout
 - Battery level (`sensor`, %)
 - OS version (diagnostic `sensor`)
+- "Hexpansion 1"–"Hexpansion 6 Power" switches, one per port, to cut or
+  restore 3.3V power to whatever's plugged in
 
 Everything publishes via MQTT *device-based* discovery (one retained config
 message). HA picks it up the first time the badge connects.
@@ -105,7 +107,7 @@ Open "HA Bridge" from the Apps menu. The status line cycles through
 `Starting…` → `WiFi OK` → `Connected`. Press CANCEL to minimise.
 
 In HA: Settings → Devices & Services → Devices → "Tildagon Badge". You
-should see all 17 entities.
+should see all 23 entities.
 
 ## Driving the screen
 
@@ -191,6 +193,29 @@ The obvious use is to wire it to a room-presence sensor. Example:
         entity_id: switch.tildagon_badge_active
 ```
 
+## Hexpansion power
+
+Each "Hexpansion N Power" switch (`switch.tildagon_badge_hexpansion_N_power`)
+turns that port's 3.3V supply off and on. Ports are numbered 1–6, matching
+the badge's own hexpansion numbering.
+
+How it works: on the Tildagon, each port's detect pin also drives the
+port's current-limited load switch through an inverter. A fitted hexpansion
+grounds the detect pin, which turns power on. To turn a port off the badge
+drives that pin high from its GPIO expander (a 10k resistor keeps this safe
+against the hexpansion's ground link). Turning it back on releases the pin
+again. The firmware's own power-off screen uses the same trick.
+
+Things to know:
+
+- The badge's hexpansion manager sees power-off as the hexpansion being
+  **removed** (its app is stopped) and power-on as it being **inserted**
+  again.
+- Ports start powered. The bridge doesn't touch a port's pin until HA sends
+  a command, and the off state isn't saved, so a reboot powers every port
+  back on.
+- Switching an empty port reports the commanded state but does nothing.
+
 ## Example: power dial automation
 
 `examples/power_dial.yaml` is the automation I run at home (pictured at the
@@ -218,10 +243,12 @@ the comments inside the YAML.
 | in | `tildagon/<id>/led/all/set` | same, applies to all 12 |
 | in | `tildagon/<id>/layout/set` | layout JSON or empty string |
 | in | `tildagon/<id>/active/set` | `ON` / `OFF` |
+| in | `tildagon/<id>/hexpansion/<n>/power/set` | `ON` / `OFF`, n = 1–6 |
 | out | `tildagon/<id>/led/<n>` | echoed state, retained |
 | out | `tildagon/<id>/led/all` | aggregate state, retained |
 | out | `tildagon/<id>/layout` | echoed layout (placeholder if > 255 chars), retained |
 | out | `tildagon/<id>/active` | echoed active state, retained |
+| out | `tildagon/<id>/hexpansion/<n>/power` | echoed port power state, retained |
 | out | `tildagon/<id>/battery` | integer percent, retained |
 | out | `tildagon/<id>/version` | OS version string, retained |
 | out | `tildagon/<id>/status` | `online` / `offline` (LWT), retained |
