@@ -7,6 +7,30 @@ automatically, no manual YAML on the HA side.
 
 Tested on Tildagon 2024 / 2026 hardware running TildagonOS.
 
+<p align="center">
+  <img src="power_dial.jpg" alt="Badge showing a live home-energy dial driven by Home Assistant" width="480">
+  <br>
+  <em>The badge as a live energy display, driven entirely from HA
+  (<a href="#example-power-dial-automation">power dial example</a>).</em>
+</p>
+
+## Quick start
+
+You need a Home Assistant install with the Mosquitto add-on, a non-admin HA
+user for the badge, and the badge already on your Wi-Fi.
+
+```bash
+cp config_example.py config.py        # then set MQTT_HOST (HA's IP), user, pass
+pip install mpremote
+mpremote connect auto fs mkdir :/apps/ha_bridge
+mpremote connect auto fs cp app.py config.py tildagon.toml :/apps/ha_bridge/
+mpremote connect auto reset           # reboot so the badge finds the app
+```
+
+On the badge, open **Apps → HA Bridge**, wait for `Connected`, then press
+CANCEL to minimise it. "Tildagon Badge" appears in HA under Settings →
+Devices & Services → Devices. See [Setup](#setup) for the details.
+
 ## What you get in HA
 
 A single device, "Tildagon Badge", with:
@@ -81,7 +105,7 @@ Open "HA Bridge" from the Apps menu. The status line cycles through
 `Starting…` → `WiFi OK` → `Connected`. Press CANCEL to minimise.
 
 In HA: Settings → Devices & Services → Devices → "Tildagon Badge". You
-should see all 16 entities.
+should see all 17 entities.
 
 ## Driving the screen
 
@@ -169,10 +193,8 @@ The obvious use is to wire it to a room-presence sensor. Example:
 
 ## Example: power dial automation
 
-![Power dial running on the badge](power_dial.jpg)
-
-`examples/power_dial.yaml` is the automation I run at home, it turns the badge
-into an at-a-glance energy display:
+`examples/power_dial.yaml` is the automation I run at home (pictured at the
+top), it turns the badge into an at-a-glance energy display:
 
 - Screen text: current wattage, today's kWh, current rate in pence,
   today's cost
